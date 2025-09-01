@@ -180,6 +180,106 @@ fn extrapolate_uni_poly_deg_4<F: Field>(p_i: &[F; 5], eval_at: F) -> F {
     l * (t0 + t1 + t2 + t3 + t4)
 }
 
+fn extrapolate_uni_poly_deg_5<F: Field>(p_i: &[F; 6], eval_at: F) -> F {
+    let x0 = F::from_canonical_u64(0);
+    let x1 = F::from_canonical_u64(1);
+    let x2 = F::from_canonical_u64(2);
+    let x3 = F::from_canonical_u64(3);
+    let x4 = F::from_canonical_u64(4);
+    let x5 = F::from_canonical_u64(5);
+
+    // w0 = 1 / ((0−1)(0−2)(0−3)(0−4)(0-5)) =  -1/120
+    // w1 = 1 / ((1−0)(1−2)(1−3)(1−4)(1-5)) = 1/24
+    // w2 = 1 / ((2−0)(2−1)(2−3)(2−4)(2-5)) =  -1/12
+    // w3 = 1 / ((3−0)(3−1)(3−2)(3−4)(3-5)) = 1/12
+    // w4 = 1 / ((4−0)(4−1)(4−2)(4−3)(4-5)) =  -1/24
+    // w5 = 1 / ((5−0)(5−1)(5−2)(5−3)(5-4)) =  1/120
+    let w0 = -F::from_canonical_u64(1).div(F::from_canonical_u64(120));
+    let w1 = -w0 * x5;
+    let w2 = -w1 * x2;
+    let w3 = -w2;
+    let w4 = -w1;
+    let w5 = -w0;
+
+    let d0 = eval_at - x0;
+    let d1 = eval_at - x1;
+    let d2 = eval_at - x2;
+    let d3 = eval_at - x3;
+    let d4 = eval_at - x4;
+    let d5 = eval_at - x5;
+
+    let l = d0 * d1 * d2 * d3 * d4 * d5;
+
+    let inv_d0 = d0.inverse();
+    let inv_d1 = d1.inverse();
+    let inv_d2 = d2.inverse();
+    let inv_d3 = d3.inverse();
+    let inv_d4 = d4.inverse();
+    let inv_d5 = d5.inverse();
+
+    let t0 = w0 * p_i[0] * inv_d0;
+    let t1 = w1 * p_i[1] * inv_d1;
+    let t2 = w2 * p_i[2] * inv_d2;
+    let t3 = w3 * p_i[3] * inv_d3;
+    let t4 = w4 * p_i[4] * inv_d4;
+    let t5 = w5 * p_i[5] * inv_d5;
+
+    l * (t0 + t1 + t2 + t3 + t4 + t5)
+}
+
+fn extrapolate_uni_poly_deg_6<F: Field>(p_i: &[F; 7], eval_at: F) -> F {
+    let x0 = F::from_canonical_u64(0);
+    let x1 = F::from_canonical_u64(1);
+    let x2 = F::from_canonical_u64(2);
+    let x3 = F::from_canonical_u64(3);
+    let x4 = F::from_canonical_u64(4);
+    let x5 = F::from_canonical_u64(5);
+    let x6 = F::from_canonical_u64(6);
+
+    // w0 = 1 / ((0−1)(0−2)(0−3)(0−4)(0-5)(0-6)) =  1/720
+    // w1 = 1 / ((1−0)(1−2)(1−3)(1−4)(1-5)(1-6)) = -1/120
+    // w2 = 1 / ((2−0)(2−1)(2−3)(2−4)(2-5)(2-6)) = 1/48
+    // w3 = 1 / ((3−0)(3−1)(3−2)(3−4)(3-5)(3-6)) = -1/36
+    // w4 = 1 / ((4−0)(4−1)(4−2)(4−3)(4-5)(4-6)) =  1/48
+    // w5 = 1 / ((5−0)(5−1)(5−2)(5−3)(5-4)(5-6)) =  -1/120
+    // w6 = 1 / ((6−0)(6−1)(6−2)(6−3)(6-4)(6-5)) =  1/720
+    let w0 = F::from_canonical_u64(1).div(F::from_canonical_u64(720));
+    let w1 = -w0 * x6;
+    let w2 = F::from_canonical_u64(1).div(F::from_canonical_u64(48));
+    let w3 = -F::from_canonical_u64(1).div(F::from_canonical_u64(36));
+    let w4 = w2;
+    let w5 = w1;
+    let w6 = w0;
+
+    let d0 = eval_at - x0;
+    let d1 = eval_at - x1;
+    let d2 = eval_at - x2;
+    let d3 = eval_at - x3;
+    let d4 = eval_at - x4;
+    let d5 = eval_at - x5;
+    let d6 = eval_at - x6;
+
+    let l = d0 * d1 * d2 * d3 * d4 * d5 * d6;
+
+    let inv_d0 = d0.inverse();
+    let inv_d1 = d1.inverse();
+    let inv_d2 = d2.inverse();
+    let inv_d3 = d3.inverse();
+    let inv_d4 = d4.inverse();
+    let inv_d5 = d5.inverse();
+    let inv_d6 = d6.inverse();
+
+    let t0 = w0 * p_i[0] * inv_d0;
+    let t1 = w1 * p_i[1] * inv_d1;
+    let t2 = w2 * p_i[2] * inv_d2;
+    let t3 = w3 * p_i[3] * inv_d3;
+    let t4 = w4 * p_i[4] * inv_d4;
+    let t5 = w5 * p_i[5] * inv_d5;
+    let t6 = w6 * p_i[6] * inv_d6;
+
+    l * (t0 + t1 + t2 + t3 + t4 + t5 + t6)
+}
+
 /// Evaluate a univariate polynomial defined by its values `p_i` at integer points `0..p_i.len()-1`
 /// using Barycentric interpolation at the given `eval_at` point.
 ///
@@ -206,6 +306,8 @@ pub fn extrapolate_uni_poly<F: Field>(p: &[F], eval_at: F) -> F {
         3 => extrapolate_uni_poly_deg_2(p.try_into().unwrap(), eval_at),
         4 => extrapolate_uni_poly_deg_3(p.try_into().unwrap(), eval_at),
         5 => extrapolate_uni_poly_deg_4(p.try_into().unwrap(), eval_at),
+        6 => extrapolate_uni_poly_deg_5(p.try_into().unwrap(), eval_at),
+        7 => extrapolate_uni_poly_deg_6(p.try_into().unwrap(), eval_at),
         _ => unimplemented!("Extrapolation for degree {} not implemented", p.len() - 1),
     }
 }

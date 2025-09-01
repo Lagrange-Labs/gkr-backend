@@ -1,9 +1,13 @@
 pub mod impl_goldilocks {
+    use std::sync::LazyLock;
+
     use crate::{
         ExtensionField, FieldFrom, FieldInto, FromUniformBytes, SmallField,
         array_try_from_uniform_bytes, impl_from_uniform_bytes_for_binomial_extension,
-        poseidon::{PoseidonField, new_array},
+        poseidon::PoseidonField,
     };
+    #[cfg(debug_assertions)]
+    use p3::goldilocks::Poseidon2GoldilocksHL;
     use p3::{
         challenger::DuplexChallenger,
         field::{
@@ -12,16 +16,20 @@ pub mod impl_goldilocks {
         },
         goldilocks::{
             Goldilocks, HL_GOLDILOCKS_8_EXTERNAL_ROUND_CONSTANTS,
-            HL_GOLDILOCKS_8_INTERNAL_ROUND_CONSTANTS, Poseidon2GoldilocksHL,
+            HL_GOLDILOCKS_8_INTERNAL_ROUND_CONSTANTS, MATRIX_DIAG_8_GOLDILOCKS,
         },
         merkle_tree::MerkleTreeMmcs,
-        poseidon2::ExternalLayerConstants,
-        symmetric::{PaddingFreeSponge, TruncatedPermutation},
+        poseidon2::{
+            ExternalLayer, InternalLayer, MDSMat4, add_rc_and_sbox_generic,
+            external_initial_permute_state, external_terminal_permute_state,
+            internal_permute_state, matmul_internal,
+        },
+        symmetric::{PaddingFreeSponge, Permutation, TruncatedPermutation},
     };
 
     #[cfg(debug_assertions)]
     use crate::poseidon::impl_instruments::*;
-    #[cfg(debug_assertions)]
+
     use p3::symmetric::CryptographicPermutation;
 
     pub type GoldilocksExt2 = BinomialExtensionField<Goldilocks, 2>;
@@ -52,12 +60,86 @@ pub mod impl_goldilocks {
         for Instrumented<Poseidon2GoldilocksHL<POSEIDON2_GOLDILICK_WIDTH>>
     {
     }
+    /// Implements the poseidon permutation without the need for allocations.
+    #[derive(Copy, Clone)]
+    pub struct NoAllocPoseidon {}
+
+    #[derive(Copy, Clone)]
+    struct NoAllocExternalLayer();
+
+    #[derive(Copy, Clone)]
+    struct NoAllocInternalLayer();
+
+    const WIDTH: usize = 8;
+    const GOLDILOCKS_S_BOX_DEGREE: u64 = 7;
+    static INITIAL_EXTERNAL_CONSTANTS: LazyLock<[[Goldilocks; WIDTH]; 4]> = LazyLock::new(|| {
+        HL_GOLDILOCKS_8_EXTERNAL_ROUND_CONSTANTS[0]
+            .map(|inner| inner.map(Goldilocks::from_canonical_u64))
+    });
+    static TERMINAL_EXTERNAL_CONSTANTS: LazyLock<[[Goldilocks; WIDTH]; 4]> = LazyLock::new(|| {
+        HL_GOLDILOCKS_8_EXTERNAL_ROUND_CONSTANTS[1]
+            .map(|inner| inner.map(Goldilocks::from_canonical_u64))
+    });
+    static INTERNAL_CONSTANTS: LazyLock<[Goldilocks; 22]> = LazyLock::new(|| {
+        HL_GOLDILOCKS_8_INTERNAL_ROUND_CONSTANTS.map(Goldilocks::from_canonical_u64)
+    });
+
+    impl<FA: FieldAlgebra<F = Goldilocks>> ExternalLayer<FA, WIDTH, GOLDILOCKS_S_BOX_DEGREE>
+        for NoAllocExternalLayer
+    {
+        fn permute_state_initial(&self, state: &mut [FA; WIDTH]) {
+            external_initial_permute_state(
+                state,
+                &*INITIAL_EXTERNAL_CONSTANTS,
+                add_rc_and_sbox_generic::<_, GOLDILOCKS_S_BOX_DEGREE>,
+                &MDSMat4,
+            );
+        }
+
+        fn permute_state_terminal(&self, state: &mut [FA; WIDTH]) {
+            external_terminal_permute_state(
+                state,
+                &*TERMINAL_EXTERNAL_CONSTANTS,
+                add_rc_and_sbox_generic::<_, GOLDILOCKS_S_BOX_DEGREE>,
+                &MDSMat4,
+            );
+        }
+    }
+
+    impl<FA: FieldAlgebra<F = Goldilocks>> InternalLayer<FA, WIDTH, GOLDILOCKS_S_BOX_DEGREE>
+        for NoAllocInternalLayer
+    {
+        /// Perform the internal layers of the Poseidon2 permutation on the given state.
+        fn permute_state(&self, state: &mut [FA; 8]) {
+            internal_permute_state::<FA, 8, GOLDILOCKS_S_BOX_DEGREE>(
+                state,
+                |x| matmul_internal(x, MATRIX_DIAG_8_GOLDILOCKS),
+                &*INTERNAL_CONSTANTS,
+            )
+        }
+    }
+
+    static EXTERNAL_LAYER: NoAllocExternalLayer = NoAllocExternalLayer();
+    static INTERNAL_LAYER: NoAllocInternalLayer = NoAllocInternalLayer();
+
+    impl Permutation<[Goldilocks; WIDTH]> for NoAllocPoseidon {
+        fn permute_mut(&self, state: &mut [Goldilocks; WIDTH]) {
+            EXTERNAL_LAYER.permute_state_initial(state);
+            INTERNAL_LAYER.permute_state(state);
+            EXTERNAL_LAYER.permute_state_terminal(state);
+        }
+    }
+
+    impl CryptographicPermutation<[Goldilocks; WIDTH]> for NoAllocPoseidon {}
+
+    #[cfg(debug_assertions)]
+    impl CryptographicPermutation<[Goldilocks; WIDTH]> for Instrumented<NoAllocPoseidon> {}
 
     impl PoseidonField for Goldilocks {
         #[cfg(debug_assertions)]
-        type P = Instrumented<Poseidon2GoldilocksHL<POSEIDON2_GOLDILICK_WIDTH>>;
+        type P = Instrumented<NoAllocPoseidon>;
         #[cfg(not(debug_assertions))]
-        type P = Poseidon2GoldilocksHL<POSEIDON2_GOLDILICK_WIDTH>;
+        type P = NoAllocPoseidon;
         type T =
             DuplexChallenger<Self, Self::P, POSEIDON2_GOLDILICK_WIDTH, POSEIDON2_GOLDILICK_RATE>;
         type S = PaddingFreeSponge<Self::P, POSEIDON2_GOLDILICK_WIDTH, POSEIDON2_GOLDILICK_RATE, 4>;
@@ -71,24 +153,12 @@ pub mod impl_goldilocks {
 
         #[cfg(debug_assertions)]
         fn get_default_perm() -> Self::P {
-            Instrumented::new(Poseidon2GoldilocksHL::new(
-                ExternalLayerConstants::<Goldilocks, POSEIDON2_GOLDILICK_WIDTH>::new_from_saved_array(
-                    HL_GOLDILOCKS_8_EXTERNAL_ROUND_CONSTANTS,
-                    new_array,
-                ),
-                new_array(HL_GOLDILOCKS_8_INTERNAL_ROUND_CONSTANTS).to_vec(),
-            ))
+            Instrumented::new(NoAllocPoseidon {})
         }
 
         #[cfg(not(debug_assertions))]
         fn get_default_perm() -> Self::P {
-            Poseidon2GoldilocksHL::new(
-                ExternalLayerConstants::<Goldilocks, POSEIDON2_GOLDILICK_WIDTH>::new_from_saved_array(
-                    HL_GOLDILOCKS_8_EXTERNAL_ROUND_CONSTANTS,
-                    new_array,
-                ),
-                new_array(HL_GOLDILOCKS_8_INTERNAL_ROUND_CONSTANTS).to_vec(),
-            )
+            NoAllocPoseidon {}
         }
 
         fn get_default_sponge() -> Self::S {

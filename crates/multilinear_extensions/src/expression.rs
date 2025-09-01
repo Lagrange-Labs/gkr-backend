@@ -31,7 +31,7 @@ pub enum Expression<E: ExtensionField> {
     /// StructuralWitIn is similar with WitIn, but it is structured.
     /// These witnesses in StructuralWitIn allow succinct verification directly during the verification processing, rather than requiring a commitment.
     /// StructuralWitIn(Id, max_len, offset, multi_factor)
-    StructuralWitIn(WitnessId, StructuralWitInType),
+    StructuralWitIn(WitnessId, usize, u32, usize),
     /// This multi-linear polynomial is known at the setup/keygen phase.
     Fixed(Fixed),
     /// Public Values
@@ -55,7 +55,7 @@ impl<E: ExtensionField> Debug for Expression<E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Expression::WitIn(id) => write!(f, "W[{}]", id),
-            Expression::StructuralWitIn(id, _) => {
+            Expression::StructuralWitIn(id, _max_len, _offset, _multi_factor) => {
                 write!(f, "S[{}]", id)
             }
             Expression::Fixed(fixed) => write!(f, "F[{}]", fixed.0),
@@ -137,7 +137,7 @@ impl<E: ExtensionField> Expression<E> {
         &self,
         fixed_in: &impl Fn(&Fixed) -> T,
         wit_in: &impl Fn(WitnessId) -> T, // witin id
-        structural_wit_in: &impl Fn(WitnessId, StructuralWitInType) -> T,
+        structural_wit_in: &impl Fn(WitnessId, usize, u32, usize) -> T,
         constant: &impl Fn(Either<E::BaseField, E>) -> T,
         challenge: &impl Fn(ChallengeId, usize, E, E) -> T,
         sum: &impl Fn(T, T) -> T,
@@ -176,7 +176,7 @@ impl<E: ExtensionField> Expression<E> {
         &self,
         fixed_in: &impl Fn(&Fixed) -> T,
         wit_in: &impl Fn(WitnessId) -> T, // witin id
-        structural_wit_in: &impl Fn(WitnessId, StructuralWitInType) -> T,
+        structural_wit_in: &impl Fn(WitnessId, usize, u32, usize) -> T,
         instance: &impl Fn(Instance) -> T,
         constant: &impl Fn(Either<E::BaseField, E>) -> T,
         challenge: &impl Fn(ChallengeId, usize, E, E) -> T,
@@ -187,8 +187,8 @@ impl<E: ExtensionField> Expression<E> {
         match self {
             Expression::Fixed(f) => fixed_in(f),
             Expression::WitIn(witness_id) => wit_in(*witness_id),
-            Expression::StructuralWitIn(witness_id, witin_type) => {
-                structural_wit_in(*witness_id, *witin_type)
+            Expression::StructuralWitIn(witness_id, max_len, offset, multi_factor) => {
+                structural_wit_in(*witness_id, *max_len, *offset, *multi_factor)
             }
             Expression::Instance(i) => instance(*i),
             Expression::InstanceScalar(i) => instance(*i),
@@ -369,7 +369,7 @@ impl<E: ExtensionField> Expression<E> {
     where
         TF: Fn(&Fixed) -> Expression<E>,
         TW: Fn(WitnessId) -> Expression<E>,
-        TS: Fn(WitnessId, StructuralWitInType) -> Expression<E>,
+        TS: Fn(WitnessId, usize, u32, usize) -> Expression<E>,
         TI: Fn(Instance) -> Expression<E>,
         TIS: Fn(Instance) -> Expression<E>,
         TC: Fn(Either<E::BaseField, E>) -> Expression<E>,
@@ -377,7 +377,9 @@ impl<E: ExtensionField> Expression<E> {
     {
         match self {
             Expression::WitIn(id) => wit_fn(*id),
-            Expression::StructuralWitIn(id, witin_type) => struct_wit_fn(*id, *witin_type),
+            Expression::StructuralWitIn(id, len, offset, multi_factor) => {
+                struct_wit_fn(*id, *len, *offset, *multi_factor)
+            }
             Expression::Fixed(f) => fixed_fn(f),
             Expression::Instance(i) => instance_fn(*i),
             Expression::InstanceScalar(i) => instance_scalar_fn(*i),
@@ -1013,52 +1015,14 @@ pub struct WitIn {
     pub id: WitnessId,
 }
 
-#[derive(
-    Clone, Debug, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
-)]
-#[repr(C)]
-pub enum StructuralWitInType {
-    /// The correspeonding evaluation vector is the sequence: M = M' * multi_factor * descending + offset
-    /// where M' = [0, 1, 2, ..., max_len - 1] and descending = if descending { -1 } else { 1 }
-    EqualDistanceSequence {
-        max_len: usize,
-        offset: u32,
-        multi_factor: usize,
-        descending: bool,
-    },
-    /// The corresponding evaluation vector is the sequence: [0, 0, 0, 1, 0, 1, 2, 3, 0, 1, 2, 3, 4, 5, 6, 7, ..., 0, 1, 2, 3, ..., 2^max_bits-1]
-    /// The length of the vectors is 2^(max_bits + 1)
-    StackedIncrementalSequence { max_bits: usize },
-    /// The corresponding evaluation vector is the sequence: [0, 0] + [1, 1] + [2] * 4 + [3] * 8 + ... + [max_value] * (2^max_value)
-    /// The length of the vectors is 2^(max_value + 1)
-    StackedConstantSequence { max_value: usize },
-    /// The corresponding evaluation vector is the sequence: [0, ..., 0, 1, ..., 1, ..., 2^(n-k-1)-1, ..., 2^(n-k-1)-1]
-    /// where each element is repeated by 2^k times
-    /// The total length of the vector is 2^n
-    InnerRepeatingIncrementalSequence { k: usize, n: usize },
-    /// The corresponding evaluation vector is the sequence: [0, ..., 2^k-1]
-    /// repeated by 2^(n-k) times
-    /// The total length of the vector is 2^n
-    OuterRepeatingIncrementalSequence { k: usize, n: usize },
-}
-
-impl StructuralWitInType {
-    pub fn max_len(&self) -> usize {
-        match self {
-            StructuralWitInType::EqualDistanceSequence { max_len, .. } => *max_len,
-            StructuralWitInType::StackedIncrementalSequence { max_bits } => 1 << (max_bits + 1),
-            StructuralWitInType::StackedConstantSequence { max_value } => 1 << (max_value + 1),
-            StructuralWitInType::InnerRepeatingIncrementalSequence { n, .. } => 1 << n,
-            StructuralWitInType::OuterRepeatingIncrementalSequence { n, .. } => 1 << n,
-        }
-    }
-}
-
 #[derive(Clone, Debug, Copy, serde::Serialize, serde::Deserialize)]
 #[repr(C)]
 pub struct StructuralWitIn {
     pub id: WitnessId,
-    pub witin_type: StructuralWitInType,
+    pub max_len: usize,
+    pub offset: u32,
+    pub multi_factor: usize,
+    pub descending: bool,
 }
 
 #[derive(
@@ -1095,14 +1059,14 @@ impl<E: ExtensionField> ToExpr<E> for &WitIn {
 impl<E: ExtensionField> ToExpr<E> for StructuralWitIn {
     type Output = Expression<E>;
     fn expr(&self) -> Expression<E> {
-        Expression::StructuralWitIn(self.id, self.witin_type)
+        Expression::StructuralWitIn(self.id, self.max_len, self.offset, self.multi_factor)
     }
 }
 
 impl<E: ExtensionField> ToExpr<E> for &StructuralWitIn {
     type Output = Expression<E>;
     fn expr(&self) -> Expression<E> {
-        Expression::StructuralWitIn(self.id, self.witin_type)
+        Expression::StructuralWitIn(self.id, self.max_len, self.offset, self.multi_factor)
     }
 }
 
@@ -1349,8 +1313,11 @@ pub mod fmt {
                 }
                 format!("WitIn({})", wit_in)
             }
-            Expression::StructuralWitIn(wit_in, witin_type) => {
-                format!("StructuralWitIn({}, {:?})", wit_in, witin_type)
+            Expression::StructuralWitIn(wit_in, max_len, offset, multi_factor) => {
+                format!(
+                    "StructuralWitIn({}, {}, {}, {})",
+                    wit_in, max_len, offset, multi_factor
+                )
             }
             Expression::Challenge(id, pow, scaler, offset) => {
                 if *pow == 1 && *scaler == E::ONE && *offset == E::ZERO {
@@ -1435,8 +1402,15 @@ pub mod fmt {
         if value > F::MODULUS_U64 - u16::MAX as u64 {
             // beautiful format for negative number > -65536
             parens(format!("-{}", F::MODULUS_U64 - value), add_parens)
-        } else {
+        } else if value < u16::MAX as u64 {
             format!("{value}")
+        } else {
+            // hex
+            if value > F::MODULUS_U64 - (u32::MAX as u64 + u16::MAX as u64) {
+                parens(format!("-{}", F::MODULUS_U64 - value), add_parens)
+            } else {
+                format!("{value}")
+            }
         }
     }
 

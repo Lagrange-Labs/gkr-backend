@@ -33,6 +33,7 @@ pub trait PoseidonField: PrimeField + SmallField {
     fn get_default_mmcs() -> Self::MMCS;
 }
 
+#[allow(unused)]
 pub(crate) fn new_array<const N: usize, F: PrimeField>(input: [u64; N]) -> [F; N] {
     let mut output = [F::ZERO; N];
     let mut i = 0;
