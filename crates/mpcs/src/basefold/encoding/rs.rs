@@ -1,4 +1,5 @@
 use std::marker::PhantomData;
+use std::sync::{Arc, Mutex};
 
 use super::{EncodingProverParameters, EncodingScheme};
 use crate::Error;
@@ -63,7 +64,7 @@ pub struct RSCodeParameters<E: ExtensionField> {
 ))]
 pub struct RSCodeProverParameters<E: ExtensionField> {
     #[serde(skip)]
-    pub(crate) dft: Radix2DitParallel<E::BaseField>,
+    pub(crate) dft: Arc<Mutex<Radix2DitParallel<E::BaseField>>>,
     pub(crate) t_inv_halves: Vec<Vec<E::BaseField>>,
     pub(crate) full_message_size_log: usize,
 }
@@ -173,7 +174,7 @@ where
 
         Ok((
             Self::ProverParameters {
-                dft: prover_dft,
+                dft: Arc::new(Mutex::new(prover_dft)),
                 t_inv_halves: t_inv_halves_prover,
                 full_message_size_log: max_message_size_log,
             },
@@ -200,6 +201,8 @@ where
             .to_row_major_matrix();
         let codeword = pp
             .dft
+            .lock()
+            .unwrap()
             .dft_batch(m)
             // The encoding scheme always folds the codeword in left-and-right
             // manner. However to benefit from

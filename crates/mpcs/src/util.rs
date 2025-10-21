@@ -29,6 +29,7 @@ pub fn u32_to_field<E: ExtensionField>(x: u32) -> E::BaseField {
 /// # example
 ///
 /// ```
+/// use mpcs::util::split_by_sizes;
 /// let input = vec![10, 20, 30, 40, 50, 60];
 /// let sizes = vec![2, 3, 1];
 /// let result = split_by_sizes(input, &sizes);
@@ -103,22 +104,19 @@ pub(crate) fn codeword_fold_with_challenge<E: ExtensionField>(
 
 #[cfg(any(test, feature = "benchmark"))]
 pub mod test {
+    #[cfg(test)]
+    use crate::util::{base_to_usize, u32_to_field};
     use ff_ext::FromUniformBytes;
+    use p3::field::FieldAlgebra;
+    #[cfg(test)]
+    type E = ff_ext::GoldilocksExt2;
+    #[cfg(test)]
+    type F = p3::goldilocks::Goldilocks;
     use rand::{
         CryptoRng, RngCore, SeedableRng,
         rngs::{OsRng, StdRng},
     };
     use std::{array, iter, ops::Range};
-    #[cfg(test)]
-    use {
-        crate::util::{base_to_usize, u32_to_field},
-        p3::field::FieldAlgebra,
-    };
-
-    #[cfg(test)]
-    type E = ff_ext::GoldilocksExt2;
-    #[cfg(test)]
-    type F = p3::goldilocks::Goldilocks;
 
     pub fn std_rng() -> impl RngCore + CryptoRng {
         StdRng::from_seed(Default::default())

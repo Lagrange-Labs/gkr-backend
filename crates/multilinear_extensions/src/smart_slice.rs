@@ -105,6 +105,16 @@ impl<'a, T> SmartSlice<'a, T> {
     }
 }
 
+impl<'a, T: Clone> SmartSlice<'a, T> {
+    pub fn into_owned(&self) -> SmartSlice<'static, T> {
+        match self {
+            SmartSlice::Borrowed(items) => SmartSlice::Owned(items.to_vec()),
+            SmartSlice::BorrowedMut(items) => SmartSlice::Owned(items.to_vec()),
+            SmartSlice::Owned(items) => SmartSlice::Owned(items.to_vec()),
+        }
+    }
+}
+
 impl<'a, T> Deref for SmartSlice<'a, T> {
     type Target = [T];
 

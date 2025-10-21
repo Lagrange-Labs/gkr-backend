@@ -138,7 +138,69 @@ impl<'a, E: ExtensionField> VirtualPolynomial<'a, E> {
         curr_index
     }
 
-    pub(crate) fn add_monomial_terms(&mut self, monomial_terms: MonomialTermsType<'a, E>) {
+    // Add a product of list of multilinear extensions to self
+    /// Returns an error if the list is empty.
+    ///
+    /// mle in product must be in same num_vars() in same product,
+    /// while different product can have different num_vars()
+    ///
+    /// The MLEs will be multiplied together, and then multiplied by the scalar
+    /// `scalar`.
+    pub fn add_mle_list(&mut self, product: Vec<ArcMultilinearExtension<'a, E>>, scalar: E) {
+        let product: Vec<Expression<E>> = product
+            .into_iter()
+            .map(|mle: Arc<MultilinearExtension<'_, _>>| {
+                Expression::WitIn(self.register_mle(mle.as_ref().into_owned().into()) as u16)
+            })
+            .collect_vec();
+        self.add_monomial_terms(vec![Term {
+            scalar: Either::Right(scalar),
+            product,
+        }]);
+    }
+
+    /// Multiple the current VirtualPolynomial by an MLE:
+    /// - add the MLE to the MLE list;
+    /// - multiple each product by MLE and its coefficient.
+    ///
+    /// Returns an error if the MLE has a different `num_vars()` from self.
+    pub fn mul_by_mle(&mut self, mle: ArcMultilinearExtension<'a, E>, coefficient: E::BaseField) {
+        assert_eq!(
+            mle.num_vars(),
+            self.aux_info.max_num_variables,
+            "product has a multiplicand with wrong number of variables {} vs {}",
+            mle.num_vars(),
+            self.aux_info.max_num_variables
+        );
+
+        let mle = mle.as_ref().into_owned().into();
+        let mle_ptr = Arc::as_ptr(&mle) as *const () as usize;
+
+        // check if this mle already exists in the virtual polynomial
+        let mle_index = match self.raw_pointers_lookup_table.get(&mle_ptr) {
+            Some(&p) => p,
+            None => {
+                self.raw_pointers_lookup_table
+                    .insert(mle_ptr, self.flattened_ml_extensions.len());
+                self.flattened_ml_extensions.push(mle);
+                self.flattened_ml_extensions.len() - 1
+            }
+        };
+
+        for product in self.products.iter_mut() {
+            // - add the MLE to the MLE list;
+            // - multiple each product by MLE and its coefficient.
+            for term in product.terms.iter_mut() {
+                either::for_both!(&mut term.scalar, c => *c = *c * coefficient);
+                term.product.push(mle_index);
+            }
+        }
+
+        // increase the max degree by one as the MLE has degree 1.
+        self.aux_info.max_degree += 1;
+    }
+
+    pub fn add_monomial_terms(&mut self, monomial_terms: MonomialTermsType<'a, E>) {
         let terms = monomial_terms
             .into_iter()
             .map(|Term { scalar, product }| {
