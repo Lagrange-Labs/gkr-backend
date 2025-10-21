@@ -160,6 +160,21 @@ where
     pub log2_max_codeword_size: usize,
 }
 
+impl<E: ExtensionField> PartialEq for BasefoldCommitment<E> 
+where Digest<E>: PartialEq,
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.commit == other.commit
+            && self.log2_max_codeword_size == other.log2_max_codeword_size
+    }
+}
+
+impl<E: ExtensionField> Eq for BasefoldCommitment<E> 
+where Digest<E>: Eq,
+{
+
+}
+
 impl<E: ExtensionField> BasefoldCommitment<E>
 where
     E::BaseField: Serialize + DeserializeOwned,
