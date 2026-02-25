@@ -7,6 +7,7 @@ use transcript::Transcript;
 use witness::RowMajorMatrix;
 
 pub mod util;
+pub mod mock;
 
 pub type Commitment<E, Pcs> = <Pcs as PolynomialCommitmentScheme<E>>::Commitment;
 pub type CommitmentChunk<E, Pcs> = <Pcs as PolynomialCommitmentScheme<E>>::CommitmentChunk;
